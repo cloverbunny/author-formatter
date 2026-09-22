@@ -18,7 +18,4 @@ No header row? Column 1 is treated as the name and the rest as affiliations.
 ## Output
 Formatted (copies with real superscripts into Word / Google Docs), LaTeX, HTML and plain text (Unicode superscripts).
 
-## Hosting on GitHub Pages
-1. Create a repository and add `index.html` (and this README) to the root.
-2. Settings → Pages → Source: *Deploy from a branch*, branch `main`, folder `/ (root)`.
-3. Your app appears at `https://<username>.github.io/<repo>/` within a minute or two.
+# Inspired by the awesome authorship tool built by Dema Therese Maria Palathingal for the CLIF Consortium! 
