@@ -18,4 +18,4 @@ No header row? Column 1 is treated as the name and the rest as affiliations.
 ## Output
 Formatted (copies with real superscripts into Word / Google Docs), LaTeX, HTML and plain text (Unicode superscripts).
 
-# Inspired by the awesome authorship tool built by Dema Therese Maria Palathingal for the CLIF Consortium! 
+Inspired by the awesome authorship tool built by Dema Therese Maria Palathingal for the CLIF Consortium! 
