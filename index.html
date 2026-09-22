@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Author list formatter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#F1F3F6; --surface:#FFFFFF; --ink:#1D2733; --muted:#5B6675;
+  --line:#D3D9E1; --accent:#2A4DB8; --accent-ink:#FFFFFF; --warn:#9A5B00; --warn-bg:#FFF4DF;
+  --sans:"Public Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --serif:"Source Serif 4","Source Serif Pro",Georgia,"Times New Roman",serif;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root{--bg:#12171D;--surface:#1B222B;--ink:#E6EAF0;--muted:#9AA5B4;--line:#2E3845;--accent:#8FA8FF;--accent-ink:#0E1420;--warn:#F2C26B;--warn-bg:#2C2414}
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--sans)}
+header{max-width:1200px;margin:0 auto;padding:40px 24px 8px}
+h1{font:600 clamp(28px,4vw,40px)/1.15 var(--serif);margin:0 0 8px;letter-spacing:-.01em}
+h1 sup{font-size:.5em;color:var(--accent);margin-left:2px}
+header p{margin:0;color:var(--muted);max-width:62ch}
+main{max-width:1200px;margin:0 auto;padding:24px;display:grid;grid-template-columns:minmax(0,5fr) minmax(0,6fr);gap:28px;align-items:start}
+@media (max-width:900px){main{grid-template-columns:1fr}}
+h2{font:600 17px/1.3 var(--sans);margin:0 0 10px}
+section+section{margin-top:28px}
+.drop{border:1.5px dashed var(--line);border-radius:10px;padding:18px;text-align:center;background:var(--surface);cursor:pointer;transition:border-color .15s,background .15s}
+.drop:hover,.drop.over{border-color:var(--accent)}
+.drop strong{color:var(--accent)}
+.drop small{display:block;color:var(--muted);margin-top:4px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:10px 0}
+textarea{width:100%;min-height:210px;resize:vertical;border:1px solid var(--line);border-radius:8px;padding:10px 12px;background:var(--surface);color:var(--ink);font:13px/1.5 var(--mono);white-space:pre;overflow-x:auto}
+button,.btn{font:500 14px var(--sans);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:7px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hint{color:var(--muted);font-size:13px;margin:6px 0 0}
+.hint code{font:12px var(--mono);background:var(--surface);border:1px solid var(--line);border-radius:4px;padding:0 4px}
+.opts{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px}
+@media (max-width:520px){.opts{grid-template-columns:1fr}}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--muted)}
+select{font:14px var(--sans);padding:6px 8px;border:1px solid var(--line);border-radius:7px;background:var(--surface);color:var(--ink)}
+label.c{display:flex;gap:8px;align-items:center;font-size:14px}
+.out{position:sticky;top:16px}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:0;overflow-x:auto}
+.tabs button{border:none;border-bottom:2px solid transparent;border-radius:0;background:none;padding:8px 12px;color:var(--muted);white-space:nowrap}
+.tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
+.sheet{background:var(--surface);border:1px solid var(--line);border-top:none;border-radius:0 0 10px 10px;padding:32px clamp(18px,4vw,44px);min-height:280px}
+.page{font:17px/1.6 var(--serif);max-width:68ch;margin:0 auto}
+.page .authors{text-align:center;font-size:18.5px;line-height:1.7;margin:0 0 18px}
+.page .affs p,.page .notes p{margin:0 0 4px;font-size:14.5px;line-height:1.5}
+.page .notes{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.page sup{font-size:.68em;line-height:0}
+.empty{color:var(--muted);font:15px/1.6 var(--sans);text-align:center;padding:60px 0}
+pre.code{margin:0;font:13px/1.55 var(--mono);white-space:pre-wrap;word-break:break-word}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+.status{font-size:13px;color:var(--muted)}
+.warn{background:var(--warn-bg);color:var(--warn);border-radius:8px;padding:10px 12px;font-size:13.5px;margin-top:12px}
+.warn ul{margin:4px 0 0;padding-left:18px}
+footer{max-width:1200px;margin:0 auto;padding:8px 24px 40px;color:var(--muted);font-size:13px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Author list formatter<sup>1,2</sup></h1>
+  <p>Upload a spreadsheet of authors and affiliations. Each affiliation gets a number in order of first appearance, duplicates are merged, and you can copy the result straight into Word, Google Docs or LaTeX.</p>
+</header>
+
+<main>
+  <div>
+    <section>
+      <h2>Your authors</h2>
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="Upload a file">
+        <strong>Choose a file</strong> or drop it here
+        <small>CSV, TSV, Excel (.xlsx, .xls) or OpenDocument (.ods)</small>
+        <input type="file" id="file" accept=".csv,.tsv,.txt,.xlsx,.xls,.ods" hidden>
+      </div>
+      <p class="hint">Or paste rows below — copying cells straight out of Excel or Google Sheets works.</p>
+      <textarea id="input" spellcheck="false" placeholder="Name,Affiliation 1,Affiliation 2,Email,Corresponding,Equal contribution"></textarea>
+      <div class="row">
+        <button id="sample">Load example</button>
+        <button id="template">Download template</button>
+        <button id="clear">Clear</button>
+      </div>
+      <p class="hint">Recognised columns: <code>Name</code> (or <code>First name</code> + <code>Last name</code>), any number of <code>Affiliation</code> columns, <code>Email</code>, <code>Corresponding</code> and <code>Equal contribution</code> (mark with yes / x / 1). Without a header row, column 1 is the name and the rest are affiliations.</p>
+    </section>
+
+    <section>
+      <h2>Style</h2>
+      <div class="opts">
+        <label class="f">Affiliation markers
+          <select id="o-style"><option value="num">1, 2, 3</option><option value="alpha">a, b, c</option><option value="ALPHA">A, B, C</option></select>
+        </label>
+        <label class="f">Author names
+          <select id="o-name"><option value="asis">As written</option><option value="init">Initials + surname (J. A. Smith)</option><option value="initnodot">Initials + surname (JA Smith)</option></select>
+        </label>
+        <label class="f">Before the last author
+          <select id="o-last"><option value=", ">Comma</option><option value=" and ">and</option><option value=", and ">, and</option><option value=" &amp; ">&amp;</option></select>
+        </label>
+        <label class="f">Corresponding / equal marks
+          <select id="o-marks"><option value="*|†">* and †</option><option value="✉|#">✉ and #</option><option value="*|‡">* and ‡</option></select>
+        </label>
+        <label class="c"><input type="checkbox" id="o-split" checked> Split cells on semicolons</label>
+        <label class="c"><input type="checkbox" id="o-range" checked> Collapse runs (1,2,3 → 1–3)</label>
+        <label class="c"><input type="checkbox" id="o-notes" checked> Include footnotes</label>
+        <label class="c"><input type="checkbox" id="o-period"> End affiliations with a period</label>
+      </div>
+    </section>
+  </div>
+
+  <div class="out">
+    <div class="tabs" role="tablist">
+      <button role="tab" data-t="rich" aria-selected="true">Formatted</button>
+      <button role="tab" data-t="latex" aria-selected="false">LaTeX</button>
+      <button role="tab" data-t="html" aria-selected="false">HTML</button>
+      <button role="tab" data-t="plain" aria-selected="false">Plain text</button>
+    </div>
+    <div class="sheet" id="sheet"></div>
+    <div class="bar">
+      <span class="status" id="status"></span>
+      <button class="primary" id="copy">Copy</button>
+    </div>
+    <div id="warnings"></div>
+  </div>
+</main>
+
+<footer>Everything runs in your browser. Nothing you upload leaves your computer.</footer>
+
+<script>
+const $ = s => document.querySelector(s);
+let tab = 'rich', out = null;
+
+const SAMPLE = `Name,Affiliation 1,Affiliation 2,Email,Corresponding,Equal contribution
+Maria L. Hernández,"Department of Biology, University of Oslo, Oslo, Norway",,,,yes
+Kenji Watanabe,"Dept. of Biology, University of Oslo, Oslo, Norway","Centre for Ecological Synthesis, Bergen, Norway",,,yes
+Aisha Bello,"Centre for Ecological Synthesis, Bergen, Norway",,,,
+Tomás O'Neill,"School of Mathematics, Trinity College Dublin, Dublin, Ireland","Department of Biology, University of Oslo, Oslo, Norway",,,
+Priya Raghavan,"Department of Biology, University of Oslo, Oslo, Norway; School of Mathematics, Trinity College Dublin, Dublin, Ireland",,p.raghavan@uio.no,yes,`;
+
+/* ---------- input ---------- */
+const input = $('#input'), fileEl = $('#file'), drop = $('#drop');
+drop.onclick = () => fileEl.click();
+drop.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileEl.click(); } };
+['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => e.dataTransfer.files[0] && loadFile(e.dataTransfer.files[0]));
+fileEl.onchange = () => fileEl.files[0] && loadFile(fileEl.files[0]);
+
+function loadFile(f) {
+  const ext = f.name.split('.').pop().toLowerCase();
+  const r = new FileReader();
+  if (['xlsx','xls','ods'].includes(ext)) {
+    r.onload = () => {
+      try {
+        const wb = XLSX.read(r.result, { type: 'array' });
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+        input.value = rows.map(row => row.map(c => String(c).replace(/\s*[\r\n]+\s*/g, '; ').replace(/\t/g, ' ')).join('\t')).join('\n');
+        render();
+      } catch (err) { showError('That spreadsheet could not be read. Save it as .xlsx or .csv and try again.'); }
+    };
+    r.readAsArrayBuffer(f);
+  } else {
+    r.onload = () => { input.value = r.result; render(); };
+    r.readAsText(f);
+  }
+  fileEl.value = '';
+}
+$('#sample').onclick = () => { input.value = SAMPLE; render(); };
+$('#clear').onclick = () => { input.value = ''; render(); };
+$('#template').onclick = () => {
+  const csv = 'Name,Affiliation 1,Affiliation 2,Affiliation 3,Email,Corresponding,Equal contribution\n';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  a.download = 'author-template.csv'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+let t; input.addEventListener('input', () => { clearTimeout(t); t = setTimeout(render, 200); });
+document.querySelectorAll('select, input[type=checkbox]').forEach(el => el.addEventListener('change', render));
+
+/* ---------- parsing ---------- */
+const truthy = v => /^(y|yes|x|true|1|✓|✔|\*)$/i.test(String(v || '').trim());
+const clean = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+const affKey = s => s.toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/\bdept\b/g, 'department').replace(/[^a-z0-9]/g, '');
+
+function detectColumns(header) {
+  const h = header.map(x => clean(x).toLowerCase());
+  const find = re => h.findIndex(x => re.test(x));
+  const c = {
+    name: find(/^(full ?name|name|author( name)?|authors?)$/),
+    first: find(/^(first|given|fore)/),
+    middle: find(/^middle/),
+    last: find(/^(last|sur|family)/),
+    email: find(/e-?mail/),
+    corr: find(/corresp/),
+    equal: find(/equal|co-?first|joint/),
+    affs: h.map((x, i) => /affil|institution|department|address|organi[sz]ation/.test(x) ? i : -1).filter(i => i >= 0)
+  };
+  return (c.name >= 0 || c.last >= 0 || c.affs.length) ? c : null;
+}
+
+function buildModel(rows, o) {
+  rows = rows.filter(r => r.some(c => clean(c)));
+  if (!rows.length) return null;
+  let cols = detectColumns(rows[0]), data = rows.slice(1);
+  if (!cols) { cols = { name: 0, first: -1, middle: -1, last: -1, email: -1, corr: -1, equal: -1, affs: rows[0].map((_, i) => i).slice(1) }; data = rows; }
+  if (cols.name < 0 && cols.last < 0) cols.name = 0;
+
+  const affMap = new Map(), affs = [], authors = [], warnings = [], variants = new Map();
+  for (const r of data) {
+    const get = i => i >= 0 ? clean(r[i]) : '';
+    let first = get(cols.first), middle = get(cols.middle), last = get(cols.last);
+    let full = cols.name >= 0 ? get(cols.name) : [first, middle, last].filter(Boolean).join(' ');
+    if (!full) continue;
+    if (cols.name >= 0 && !last) { const p = full.split(' '); last = p.pop(); first = p.join(' '); middle = ''; }
+
+    let raw = [];
+    cols.affs.forEach(i => { const v = String(r[i] ?? ''); raw.push(...(o.split ? v.split(/[;\n]/) : [v])); });
+    raw = raw.map(clean).map(s => s.replace(/[.;,]+$/, '')).filter(Boolean);
+
+    const nums = [];
+    for (const a of raw) {
+      const k = affKey(a);
+      if (!affMap.has(k)) { affMap.set(k, affs.length + 1); affs.push(a); variants.set(k, new Set([a])); }
+      else variants.get(k).add(a);
+      const n = affMap.get(k);
+      if (!nums.includes(n)) nums.push(n);
+    }
+    const a = { full, first, middle, last, nums: nums.sort((x, y) => x - y), email: get(cols.email), corr: truthy(get(cols.corr)), equal: truthy(get(cols.equal)) };
+    if (!nums.length) warnings.push(`${full} has no affiliation.`);
+    authors.push(a);
+  }
+  for (const [k, set] of variants) if (set.size > 1) warnings.push(`Merged spellings: ${[...set].map(s => '“' + s + '”').join(' and ')}. The first one is used.`);
+  const seen = new Map();
+  authors.forEach(a => seen.set(a.full.toLowerCase(), (seen.get(a.full.toLowerCase()) || 0) + 1));
+  for (const [n, c] of seen) if (c > 1) warnings.push(`“${authors.find(a => a.full.toLowerCase() === n).full}” appears ${c} times.`);
+  if (!authors.length) return null;
+  return { authors, affs, warnings };
+}
+
+/* ---------- formatting ---------- */
+function label(n, style) {
+  if (style === 'num') return String(n);
+  let s = ''; while (n > 0) { n--; s = String.fromCharCode(97 + (n % 26)) + s; n = Math.floor(n / 26); }
+  return style === 'ALPHA' ? s.toUpperCase() : s;
+}
+function numList(nums, o) {
+  if (!o.range || o.style !== 'num') return nums.map(n => label(n, o.style));
+  const out = []; let i = 0;
+  while (i < nums.length) {
+    let j = i; while (j + 1 < nums.length && nums[j + 1] === nums[j] + 1) j++;
+    out.push(j - i >= 2 ? `${nums[i]}–${nums[j]}` : nums.slice(i, j + 1).join(','));
+    i = j + 1;
+  }
+  return out;
+}
+function initials(part, dot) {
+  return part.split(/\s+/).filter(Boolean).map(w => w.split('-').map(x => x[0].toUpperCase() + (dot ? '.' : '')).join('-')).join(dot ? ' ' : '');
+}
+function displayName(a, o) {
+  if (o.name === 'asis') return a.full;
+  const given = [a.first, a.middle].filter(Boolean).join(' ');
+  if (!given) return a.last;
+  return `${initials(given, o.name === 'init')} ${a.last}`;
+}
+
+function format(model, o) {
+  const [cMark, eMark] = o.marks.split('|');
+  const authors = model.authors.map(a => {
+    const parts = numList(a.nums, o);
+    if (a.corr) parts.push(cMark);
+    if (a.equal) parts.push(eMark);
+    return { name: displayName(a, o), sup: parts.join(',') };
+  });
+  const affs = model.affs.map((t, i) => ({ sup: label(i + 1, o.style), text: t + (o.period ? '.' : '') }));
+  const notes = [];
+  if (o.notes) {
+    const corr = model.authors.filter(a => a.corr);
+    if (model.authors.some(a => a.equal)) notes.push({ sup: eMark, text: 'These authors contributed equally to this work.' });
+    if (corr.length) {
+      const withMail = corr.filter(a => a.email);
+      notes.push({ sup: cMark, text: withMail.length
+        ? 'Correspondence: ' + withMail.map(a => `${displayName(a, o)} (${a.email})`).join('; ')
+        : (corr.length > 1 ? 'Corresponding authors.' : 'Corresponding author.') });
+    }
+  }
+  return { authors, affs, notes };
+}
+
+function joinAuthors(items, o) {
+  if (items.length < 2) return items.join('');
+  return items.slice(0, -1).join(', ') + (items.length === 2 && o.last === ', and ' ? ' and ' : o.last) + items[items.length - 1];
+}
+
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const texEsc = s => s.replace(/\\/g, '\\textbackslash{}').replace(/([&%$#_{}])/g, '\\$1').replace(/~/g, '\\textasciitilde{}').replace(/\^/g, '\\textasciicircum{}');
+const texSup = s => s.replace(/†/g, '\\dag').replace(/‡/g, '\\ddag').replace(/✉/g, '\\Letter').replace(/–/g, '--').replace(/#/g, '\\#');
+const SUP = { '0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹','–':'⁻',
+  a:'ᵃ',b:'ᵇ',c:'ᶜ',d:'ᵈ',e:'ᵉ',f:'ᶠ',g:'ᵍ',h:'ʰ',i:'ⁱ',j:'ʲ',k:'ᵏ',l:'ˡ',m:'ᵐ',n:'ⁿ',o:'ᵒ',p:'ᵖ',r:'ʳ',s:'ˢ',t:'ᵗ',u:'ᵘ',v:'ᵛ',w:'ʷ',x:'ˣ',y:'ʸ',z:'ᶻ',
+  A:'ᴬ',B:'ᴮ',D:'ᴰ',E:'ᴱ',G:'ᴳ',H:'ᴴ',I:'ᴵ',J:'ᴶ',K:'ᴷ',L:'ᴸ',M:'ᴹ',N:'ᴺ',O:'ᴼ',P:'ᴾ',R:'ᴿ',T:'ᵀ',U:'ᵁ',V:'ⱽ',W:'ᵂ' };
+const uniSup = s => [...s].map(ch => SUP[ch] || ch).join('');
+
+function toHTML(f, o, full) {
+  const a = `<p${full ? '' : ' class="authors"'}>${joinAuthors(f.authors.map(x => esc(x.name) + (x.sup ? `<sup>${esc(x.sup)}</sup>` : '')), o)}</p>`;
+  const af = f.affs.map(x => `<p><sup>${x.sup}</sup>${esc(x.text)}</p>`).join('\n');
+  const nt = f.notes.map(x => `<p><sup>${esc(x.sup)}</sup>${esc(x.text)}</p>`).join('\n');
+  if (full) return [a, af, nt].filter(Boolean).join('\n\n');
+  return `${a}<div class="affs">${af}</div>${nt ? `<div class="notes">${nt}</div>` : ''}`;
+}
+function toLatex(f, o) {
+  const a = joinAuthors(f.authors.map(x => texEsc(x.name) + (x.sup ? `\\textsuperscript{${texSup(x.sup)}}` : '')), o);
+  const lines = [...f.affs, ...f.notes].map(x => `\\textsuperscript{${texSup(x.sup)}}${texEsc(x.text)}`);
+  let s = `% Author block — paste into your document body\n\\begin{center}\n${a}\n\\end{center}\n\n\\noindent\n${lines.join(' \\\\\n')}\n`;
+  if (s.includes('\\Letter')) s = '% \\Letter needs \\usepackage{marvosym}\n' + s;
+  return s;
+}
+function toPlain(f, o) {
+  const a = joinAuthors(f.authors.map(x => x.name + uniSup(x.sup)), o);
+  return [a, '', ...f.affs.map(x => uniSup(x.sup) + ' ' + x.text), ...(f.notes.length ? ['', ...f.notes.map(x => x.sup + ' ' + x.text)] : [])].join('\n');
+}
+
+/* ---------- render ---------- */
+function opts() {
+  return { style: $('#o-style').value, name: $('#o-name').value, last: $('#o-last').value, marks: $('#o-marks').value,
+    split: $('#o-split').checked, range: $('#o-range').checked, notes: $('#o-notes').checked, period: $('#o-period').checked };
+}
+function showError(msg) { $('#warnings').innerHTML = `<div class="warn">${esc(msg)}</div>`; }
+
+function render() {
+  const o = opts(), sheet = $('#sheet');
+  const text = input.value.trim();
+  out = null;
+  $('#warnings').innerHTML = '';
+  if (!text) {
+    sheet.innerHTML = '<div class="empty">Upload a file or paste your authors to see the formatted list here.<br>Not sure where to start? Load the example.</div>';
+    $('#status').textContent = ''; $('#copy').disabled = true; return;
+  }
+  const rows = Papa.parse(text, { skipEmptyLines: 'greedy' }).data;
+  const model = buildModel(rows, o);
+  if (!model) { sheet.innerHTML = '<div class="empty">No author names found. Check that the first column holds names, or add a header row.</div>'; $('#copy').disabled = true; $('#status').textContent = ''; return; }
+  const f = format(model, o);
+  out = { f, o, html: toHTML(f, o, true), latex: toLatex(f, o), plain: toPlain(f, o) };
+
+  if (tab === 'rich') sheet.innerHTML = `<div class="page">${toHTML(f, o, false)}</div>`;
+  else sheet.innerHTML = `<pre class="code">${esc(out[tab])}</pre>`;
+
+  $('#status').textContent = `${model.authors.length} author${model.authors.length === 1 ? '' : 's'}, ${model.affs.length} affiliation${model.affs.length === 1 ? '' : 's'}`;
+  $('#copy').disabled = false;
+  $('#copy').textContent = { rich: 'Copy for Word / Docs', latex: 'Copy LaTeX', html: 'Copy HTML', plain: 'Copy plain text' }[tab];
+  if (model.warnings.length) $('#warnings').innerHTML = `<div class="warn">Worth a look:<ul>${model.warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>`;
+}
+
+document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
+  tab = b.dataset.t;
+  document.querySelectorAll('.tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
+  render();
+});
+
+$('#copy').onclick = async () => {
+  if (!out) return;
+  const btn = $('#copy'), label0 = btn.textContent;
+  try {
+    if (tab === 'rich' && window.ClipboardItem) {
+      const html = `<div style="font-family:'Times New Roman',serif">${out.html}</div>`;
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([out.plain], { type: 'text/plain' }) })]);
+    } else {
+      await navigator.clipboard.writeText(tab === 'rich' ? out.plain : out[tab]);
+    }
+    btn.textContent = 'Copied';
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = tab === 'rich' ? out.plain : out[tab]; document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove(); btn.textContent = 'Copied';
+  }
+  setTimeout(() => btn.textContent = label0, 1600);
+};
+
+render();
+</script>
+</body>
+</html>
