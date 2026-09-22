@@ -63,8 +63,25 @@ pre.code{margin:0;font:13px/1.55 var(--mono);white-space:pre-wrap;word-break:bre
 .status{font-size:13px;color:var(--muted)}
 .warn{background:var(--warn-bg);color:var(--warn);border-radius:8px;padding:10px 12px;font-size:13.5px;margin-top:12px}
 .warn ul{margin:4px 0 0;padding-left:18px}
+.order{list-style:none;margin:0;padding:4px;max-height:460px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);position:relative}
+.order li{display:grid;grid-template-columns:auto 2.2em minmax(0,1fr) auto;align-items:center;gap:6px;padding:5px 6px;border-radius:7px;background:var(--surface);position:relative;user-select:none;-webkit-user-select:none}
+.order li:hover{background:var(--bg)}
+.order li.dragging{z-index:3;background:var(--surface);box-shadow:0 8px 22px rgba(20,32,56,.2);outline:1.5px solid var(--accent);cursor:grabbing}
+.order li.settle{transition:transform .16s ease}
+.grip{border:none;background:none;padding:6px 4px;cursor:grab;touch-action:none;color:var(--muted);display:flex}
+.grip:hover{color:var(--accent)}
+.pos{font-size:13px;color:var(--muted);text-align:right;font-variant-numeric:tabular-nums}
+.nm{font:16px/1.35 var(--serif);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nm sup{font-size:.7em;color:var(--accent);border-radius:3px;padding:0 1px;transition:background-color .6s}
+.nm sup.changed{background:color-mix(in srgb,var(--accent) 22%,transparent);transition:none}
+.mv{display:flex}
+.mv button{border:none;background:none;padding:4px 6px;color:var(--muted);font-size:13px;line-height:1}
+.mv button:hover{color:var(--accent)}
+.mv button:disabled{opacity:.25;cursor:default}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);margin:0}
 footer{max-width:1200px;margin:0 auto;padding:8px 24px 40px;color:var(--muted);font-size:13px}
-@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+footer p{margin:0 0 4px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}.order li.settle{transition:none}}
 </style>
 </head>
 <body>
@@ -90,6 +107,17 @@ footer{max-width:1200px;margin:0 auto;padding:8px 24px 40px;color:var(--muted);f
         <button id="clear">Clear</button>
       </div>
       <p class="hint">Recognised columns: <code>Name</code> (or <code>First name</code> + <code>Last name</code>), any number of <code>Affiliation</code> columns, <code>Email</code>, <code>Corresponding</code> and <code>Equal contribution</code> (mark with yes / x / 1). Without a header row, column 1 is the name and the rest are affiliations.</p>
+    </section>
+
+    <section id="order-section" hidden>
+      <h2>Author order</h2>
+      <p class="hint" id="order-hint">Drag authors by the handle to reorder them, or use the arrows (Alt + ↑/↓ from the keyboard). Affiliation numbers follow the new order as you drag.</p>
+      <ol class="order" id="order" aria-describedby="order-hint"></ol>
+      <div class="row">
+        <button id="order-reset">Restore spreadsheet order</button>
+        <button id="order-save">Download in this order (.csv)</button>
+      </div>
+      <p class="sr" aria-live="polite" id="order-live"></p>
     </section>
 
     <section>
@@ -131,11 +159,14 @@ footer{max-width:1200px;margin:0 auto;padding:8px 24px 40px;color:var(--muted);f
   </div>
 </main>
 
-<footer>Everything runs in your browser. Nothing you upload leaves your computer.</footer>
+<footer>
+  <p>Everything runs in your browser. Nothing you upload leaves your computer.</p>
+  <p>Inspired by the awesome authorship tool built by Dema Therese Maria Palathingal for the CLIF Consortium!</p>
+</footer>
 
 <script>
 const $ = s => document.querySelector(s);
-let tab = 'rich', out = null;
+let tab = 'rich', out = null, order = [], model = null, dragging = null;
 
 const SAMPLE = `Name,Affiliation 1,Affiliation 2,Email,Corresponding,Equal contribution
 Maria L. Hernández,"Department of Biology, University of Oslo, Oslo, Norway",,,,yes
@@ -161,18 +192,19 @@ function loadFile(f) {
       try {
         const wb = XLSX.read(r.result, { type: 'array' });
         const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: '' });
+        order = [];
         input.value = rows.map(row => row.map(c => String(c).replace(/\s*[\r\n]+\s*/g, '; ').replace(/\t/g, ' ')).join('\t')).join('\n');
         render();
       } catch (err) { showError('That spreadsheet could not be read. Save it as .xlsx or .csv and try again.'); }
     };
     r.readAsArrayBuffer(f);
   } else {
-    r.onload = () => { input.value = r.result; render(); };
+    r.onload = () => { order = []; input.value = r.result; render(); };
     r.readAsText(f);
   }
   fileEl.value = '';
 }
-$('#sample').onclick = () => { input.value = SAMPLE; render(); };
+$('#sample').onclick = () => { order = []; input.value = SAMPLE; render(); };
 $('#clear').onclick = () => { input.value = ''; render(); };
 $('#template').onclick = () => {
   const csv = 'Name,Affiliation 1,Affiliation 2,Affiliation 3,Email,Corresponding,Equal contribution\n';
@@ -200,48 +232,65 @@ function detectColumns(header) {
     email: find(/e-?mail/),
     corr: find(/corresp/),
     equal: find(/equal|co-?first|joint/),
-    affs: h.map((x, i) => /affil|institution|department|address|organi[sz]ation/.test(x) ? i : -1).filter(i => i >= 0)
+    affs: h.map((x, i) => (/^affil/.test(x) || /^(institutions?|departments?|organi[sz]ations?|address(es)?)\s*\d*$/.test(x)) ? i : -1).filter(i => i >= 0)
   };
   return (c.name >= 0 || c.last >= 0 || c.affs.length) ? c : null;
 }
 
-function buildModel(rows, o) {
+function buildModel(rows, o, order) {
   rows = rows.filter(r => r.some(c => clean(c)));
   if (!rows.length) return null;
-  let cols = detectColumns(rows[0]), data = rows.slice(1);
-  if (!cols) { cols = { name: 0, first: -1, middle: -1, last: -1, email: -1, corr: -1, equal: -1, affs: rows[0].map((_, i) => i).slice(1) }; data = rows; }
+  let cols = detectColumns(rows[0]), data = rows.slice(1), header = rows[0];
+  if (!cols) { cols = { name: 0, first: -1, middle: -1, last: -1, email: -1, corr: -1, equal: -1, affs: rows[0].map((_, i) => i).slice(1) }; data = rows; header = null; }
   if (cols.name < 0 && cols.last < 0) cols.name = 0;
 
-  const affMap = new Map(), affs = [], authors = [], warnings = [], variants = new Map();
+  // pass 1: read every author row
+  let authors = []; const seen = new Map();
   for (const r of data) {
     const get = i => i >= 0 ? clean(r[i]) : '';
     let first = get(cols.first), middle = get(cols.middle), last = get(cols.last);
     let full = cols.name >= 0 ? get(cols.name) : [first, middle, last].filter(Boolean).join(' ');
     if (!full) continue;
     if (cols.name >= 0 && !last) { const p = full.split(' '); last = p.pop(); first = p.join(' '); middle = ''; }
-
     let raw = [];
     cols.affs.forEach(i => { const v = String(r[i] ?? ''); raw.push(...(o.split ? v.split(/[;\n]/) : [v])); });
     raw = raw.map(clean).map(s => s.replace(/[.;,]+$/, '')).filter(Boolean);
+    const n = (seen.get(full.toLowerCase()) || 0) + 1; seen.set(full.toLowerCase(), n);
+    authors.push({ key: full.toLowerCase() + '#' + n, row: r, full, first, middle, last, raw,
+      email: get(cols.email), corr: truthy(get(cols.corr)), equal: truthy(get(cols.equal)) });
+  }
+  if (!authors.length) return null;
 
+  // pass 2: apply the chosen order (authors not in it keep their spreadsheet position at the end)
+  if (order && order.length) {
+    const pos = new Map(order.map((k, i) => [k, i]));
+    authors = authors.map((a, i) => ({ a, i })).sort((x, y) =>
+      (pos.has(x.a.key) ? pos.get(x.a.key) : 1e6 + x.i) - (pos.has(y.a.key) ? pos.get(y.a.key) : 1e6 + y.i)).map(x => x.a);
+  }
+
+  // pass 3: number affiliations by first appearance in that order
+  const affMap = new Map(), affs = [], warnings = [], variants = new Map();
+  for (const a of authors) {
     const nums = [];
-    for (const a of raw) {
-      const k = affKey(a);
-      if (!affMap.has(k)) { affMap.set(k, affs.length + 1); affs.push(a); variants.set(k, new Set([a])); }
-      else variants.get(k).add(a);
+    for (const t of a.raw) {
+      const k = affKey(t);
+      if (!affMap.has(k)) { affMap.set(k, affs.length + 1); affs.push(t); variants.set(k, new Map()); }
+      const v = variants.get(k); v.set(t, (v.get(t) || 0) + 1);
       const n = affMap.get(k);
       if (!nums.includes(n)) nums.push(n);
     }
-    const a = { full, first, middle, last, nums: nums.sort((x, y) => x - y), email: get(cols.email), corr: truthy(get(cols.corr)), equal: truthy(get(cols.equal)) };
-    if (!nums.length) warnings.push(`${full} has no affiliation.`);
-    authors.push(a);
+    a.nums = nums.sort((x, y) => x - y);
+    if (!nums.length) warnings.push(`${a.full} has no affiliation.`);
   }
-  for (const [k, set] of variants) if (set.size > 1) warnings.push(`Merged spellings: ${[...set].map(s => '“' + s + '”').join(' and ')}. The first one is used.`);
-  const seen = new Map();
-  authors.forEach(a => seen.set(a.full.toLowerCase(), (seen.get(a.full.toLowerCase()) || 0) + 1));
+  for (const [k, v] of variants) {
+    if (v.size < 2) continue;
+    // keep the most common spelling; on a tie, the first one seen
+    const best = [...v.entries()].reduce((b, e) => e[1] > b[1] ? e : b)[0];
+    affs[affMap.get(k) - 1] = best;
+    warnings.push(`Merged ${v.size} spellings of affiliation ${affMap.get(k)}: ${[...v.keys()].map(s => '“' + s + '”').join(', ')}. Using the most common one.`);
+  }
   for (const [n, c] of seen) if (c > 1) warnings.push(`“${authors.find(a => a.full.toLowerCase() === n).full}” appears ${c} times.`);
-  if (!authors.length) return null;
-  return { authors, affs, warnings };
+  return { authors, affs, warnings, header };
 }
 
 /* ---------- formatting ---------- */
@@ -276,7 +325,7 @@ function format(model, o) {
     const parts = numList(a.nums, o);
     if (a.corr) parts.push(cMark);
     if (a.equal) parts.push(eMark);
-    return { name: displayName(a, o), sup: parts.join(',') };
+    return { key: a.key, name: displayName(a, o), sup: parts.join(',') };
   });
   const affs = model.affs.map((t, i) => ({ sup: label(i + 1, o.style), text: t + (o.period ? '.' : '') }));
   const notes = [];
@@ -339,12 +388,14 @@ function render() {
   $('#warnings').innerHTML = '';
   if (!text) {
     sheet.innerHTML = '<div class="empty">Upload a file or paste your authors to see the formatted list here.<br>Not sure where to start? Load the example.</div>';
-    $('#status').textContent = ''; $('#copy').disabled = true; return;
+    $('#status').textContent = ''; $('#copy').disabled = true; $('#order-section').hidden = true; order = []; return;
   }
   const rows = Papa.parse(text, { skipEmptyLines: 'greedy' }).data;
-  const model = buildModel(rows, o);
-  if (!model) { sheet.innerHTML = '<div class="empty">No author names found. Check that the first column holds names, or add a header row.</div>'; $('#copy').disabled = true; $('#status').textContent = ''; return; }
+  model = buildModel(rows, o, order);
+  if (!model) { $('#order-section').hidden = true; sheet.innerHTML = '<div class="empty">No author names found. Check that the first column holds names, or add a header row.</div>'; $('#copy').disabled = true; $('#status').textContent = ''; return; }
+  order = model.authors.map(a => a.key);
   const f = format(model, o);
+  renderOrderList(f);
   out = { f, o, html: toHTML(f, o, true), latex: toLatex(f, o), plain: toPlain(f, o) };
 
   if (tab === 'rich') sheet.innerHTML = `<div class="page">${toHTML(f, o, false)}</div>`;
@@ -355,6 +406,126 @@ function render() {
   $('#copy').textContent = { rich: 'Copy for Word / Docs', latex: 'Copy LaTeX', html: 'Copy HTML', plain: 'Copy plain text' }[tab];
   if (model.warnings.length) $('#warnings').innerHTML = `<div class="warn">Worth a look:<ul>${model.warnings.map(w => `<li>${esc(w)}</li>`).join('')}</ul></div>`;
 }
+
+/* ---------- author order ---------- */
+const list = $('#order');
+const GRIP = '<svg width="12" height="18" viewBox="0 0 12 18" aria-hidden="true" fill="currentColor"><circle cx="3" cy="3" r="1.6"/><circle cx="9" cy="3" r="1.6"/><circle cx="3" cy="9" r="1.6"/><circle cx="9" cy="9" r="1.6"/><circle cx="3" cy="15" r="1.6"/><circle cx="9" cy="15" r="1.6"/></svg>';
+
+function renderOrderList(f) {
+  $('#order-section').hidden = false;
+  const items = [...list.children];
+  const sameOrder = items.length === f.authors.length && items.every((li, i) => li.dataset.key === f.authors[i].key);
+  if (!sameOrder) {
+    list.innerHTML = f.authors.map(a => `<li data-key="${esc(a.key)}">
+      <button class="grip" aria-label="Drag ${esc(a.name)}" tabindex="-1">${GRIP}</button>
+      <span class="pos"></span>
+      <span class="nm"><span class="n"></span><sup></sup></span>
+      <span class="mv"><button data-dir="-1" aria-label="Move ${esc(a.name)} up">▲</button><button data-dir="1" aria-label="Move ${esc(a.name)} down">▼</button></span>
+    </li>`).join('');
+  }
+  [...list.children].forEach((li, i) => {
+    const a = f.authors[i], sup = li.querySelector('sup');
+    li.querySelector('.pos').textContent = i + 1;
+    li.querySelector('.n').textContent = a.name;
+    if (sameOrder && sup.textContent !== a.sup) { sup.classList.add('changed'); requestAnimationFrame(() => requestAnimationFrame(() => sup.classList.remove('changed'))); }
+    sup.textContent = a.sup;
+    const [up, down] = li.querySelectorAll('.mv button');
+    up.disabled = i === 0; down.disabled = i === f.authors.length - 1;
+  });
+}
+
+function commitOrderFromDOM() {
+  order = [...list.children].map(li => li.dataset.key);
+  render();
+}
+
+// FLIP: animate siblings from where they were to where they are now
+function withFlip(mutate, skip) {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const before = new Map([...list.children].map(li => [li, li.getBoundingClientRect().top]));
+  mutate();
+  if (reduce) return;
+  for (const li of list.children) {
+    if (li === skip) continue;
+    const dy = before.get(li) - li.getBoundingClientRect().top;
+    if (!dy) continue;
+    li.classList.remove('settle'); li.style.transform = `translateY(${dy}px)`;
+    requestAnimationFrame(() => { li.classList.add('settle'); li.style.transform = ''; });
+  }
+}
+
+// keyboard & button moves
+function moveBy(li, dir) {
+  const target = dir < 0 ? li.previousElementSibling : li.nextElementSibling?.nextElementSibling;
+  if (dir < 0 && !target) return;
+  withFlip(() => list.insertBefore(li, target || null));
+  commitOrderFromDOM();
+  const idx = [...list.children].indexOf(li);
+  $('#order-live').textContent = `${li.querySelector('.n').textContent} moved to position ${idx + 1}.`;
+  li.querySelector(`.mv button[data-dir="${dir}"]`)?.focus();
+  if (li.querySelector(`.mv button[data-dir="${dir}"]`)?.disabled) li.querySelector(`.mv button[data-dir="${-dir}"]`)?.focus();
+}
+list.addEventListener('click', e => {
+  const b = e.target.closest('.mv button'); if (!b || b.disabled) return;
+  moveBy(b.closest('li'), +b.dataset.dir);
+});
+list.addEventListener('keydown', e => {
+  if (!e.altKey || !['ArrowUp','ArrowDown'].includes(e.key)) return;
+  const li = e.target.closest('li'); if (!li) return;
+  e.preventDefault(); moveBy(li, e.key === 'ArrowUp' ? -1 : 1);
+});
+
+// pointer dragging (mouse: anywhere on the row; touch/pen: the handle, so the list still scrolls)
+list.addEventListener('pointerdown', e => {
+  const li = e.target.closest('li'); if (!li || e.button !== 0 || e.target.closest('.mv')) return;
+  if (e.pointerType !== 'mouse' && !e.target.closest('.grip')) return;
+  e.preventDefault();
+  const r = li.getBoundingClientRect();
+  dragging = { li, id: e.pointerId, grab: e.clientY - r.top, h: r.height, y: e.clientY };
+  li.setPointerCapture(e.pointerId);
+  li.classList.remove('settle'); li.classList.add('dragging');
+});
+list.addEventListener('pointermove', e => {
+  if (!dragging || e.pointerId !== dragging.id) return;
+  dragging.y = e.clientY; dragTick();
+});
+function dragTick() {
+  const { li, grab, h, y } = dragging;
+  // auto-scroll when near the list edges
+  const box = list.getBoundingClientRect();
+  if (y < box.top + 32) list.scrollTop -= 10; else if (y > box.bottom - 32) list.scrollTop += 10;
+  // measure in list coordinates with offsetTop, which ignores the sibling animations
+  const listTop = box.top + list.clientTop - list.scrollTop;
+  const centre = y - grab + h / 2 - listTop;
+  const others = [...list.children].filter(x => x !== li);
+  const idx = others.findIndex(x => centre < x.offsetTop + x.offsetHeight / 2);
+  const next = idx === -1 ? null : others[idx];
+  if (li.nextElementSibling !== next) {
+    withFlip(() => list.insertBefore(li, next), li);
+    commitOrderFromDOM();                       // numbering updates live, mid-drag
+  }
+  li.style.transform = `translateY(${y - grab - listTop - li.offsetTop}px)`;
+}
+function endDrag(e) {
+  if (!dragging || (e && e.pointerId !== dragging.id)) return;
+  const { li } = dragging; dragging = null;
+  li.classList.add('settle'); li.classList.remove('dragging'); li.style.transform = '';
+  $('#order-live').textContent = `${li.querySelector('.n').textContent} is now author ${[...list.children].indexOf(li) + 1}.`;
+}
+list.addEventListener('pointerup', endDrag);
+list.addEventListener('pointercancel', endDrag);
+list.addEventListener('lostpointercapture', endDrag);
+
+$('#order-reset').onclick = () => { order = []; list.innerHTML = ''; render(); };
+$('#order-save').onclick = () => {
+  if (!model) return;
+  const rows = model.authors.map(a => a.row);
+  const csv = Papa.unparse(model.header ? [model.header, ...rows] : rows);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['\ufeff' + csv], { type: 'text/csv' }));
+  a.download = 'authors-reordered.csv'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
 
 document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => {
   tab = b.dataset.t;
