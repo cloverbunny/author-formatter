@@ -81,6 +81,8 @@ pre.code{margin:0;font:13px/1.55 var(--mono);white-space:pre-wrap;word-break:bre
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);margin:0}
 footer{max-width:1200px;margin:0 auto;padding:8px 24px 40px;color:var(--muted);font-size:13px}
 footer p{margin:0 0 4px}
+footer{display:flex;justify-content:space-between;align-items:flex-end;gap:8px 24px;flex-wrap:wrap}
+.visits{white-space:nowrap;font-variant-numeric:tabular-nums;border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:var(--surface)}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}.order li.settle{transition:none}}
 </style>
 </head>
@@ -160,12 +162,36 @@ footer p{margin:0 0 4px}
 </main>
 
 <footer>
-  <p>Everything runs in your browser. Nothing you upload leaves your computer.</p>
-  <p>Inspired by the awesome authorship tool built by Dema Therese Maria Palathingal for the CLIF Consortium!</p>
+  <div>
+    <p>Everything runs in your browser. Nothing you upload leaves your computer.</p>
+    <p>Inspired by the awesome authorship tool built by Dema Therese Maria Palathingal for the CLIF Consortium!</p>
+  </div>
+  <span class="visits" id="visits" hidden></span>
 </footer>
 
 <script>
+/* ---------- visit counter (GoatCounter) ----------
+   1. Sign up free at https://www.goatcounter.com and choose a code, e.g. "authorlist".
+   2. In GoatCounter, open Settings and tick "Allow adding visitor counts on your website".
+   3. Put your code between the quotes below. Leave it empty to hide the counter. */
+const GOATCOUNTER_CODE = '';
+
 const $ = s => document.querySelector(s);
+if (GOATCOUNTER_CODE) {
+  const base = `https://${GOATCOUNTER_CODE}.goatcounter.com`;
+  const gc = document.createElement('script');
+  gc.async = true; gc.src = 'https://gc.zgo.at/count.js'; gc.dataset.goatcounter = base + '/count';
+  document.head.appendChild(gc);
+  fetch(`${base}/counter/${location.pathname}.json`)
+    .then(r => r.ok ? r.json() : null)
+    .then(d => {
+      if (!d || !d.count) return;
+      const el = $('#visits');
+      el.textContent = `${d.count} visit${d.count === '1' ? '' : 's'}`;
+      el.hidden = false;
+    })
+    .catch(() => {});
+}
 let tab = 'rich', out = null, order = [], model = null, dragging = null;
 
 const SAMPLE = `Name,Affiliation 1,Affiliation 2,Email,Corresponding,Equal contribution
