@@ -1,3 +1,7 @@
+# This repo has moved to [https://github.com/Common-Longitudinal-ICU-data-Format/superscript-sudoku](https://github.com/Common-Longitudinal-ICU-data-Format/superscript-sudoku)
+
+
+
 # Author list formatter
 
 A single-page web app that turns a spreadsheet of authors and affiliations into a formatted author list with superscript affiliation numbers. Runs entirely in the browser.
